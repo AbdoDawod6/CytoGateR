@@ -40,6 +40,7 @@ clusteringModuleServer <- function(id, input_data, app_state) {
     # Reactive values to store results
     clustering_results <- reactiveVal(NULL)
     populations <- reactiveVal(NULL)
+    cluster_tree <- reactiveVal(NULL)
     
     # ============================================================================
     # SERVER-SIDE CONDITIONAL UI RENDERING
@@ -70,6 +71,15 @@ clusteringModuleServer <- function(id, input_data, app_state) {
           # Run clustering button
           br(),
           actionButton(session$ns("runClustering"), "Run Clustering", class = "btn-success"),
+
+          # Bonsai cluster-relationship tree (built on cluster centers, not
+          # per-event -- see R/utils/bonsai_utils.R header and spec kit
+          # section 0.1). Requires clustering to have been run first, and a
+          # local Bonsai/Python setup -- see spec kit section 2.
+          br(), br(),
+          actionButton(session$ns("buildClusterTree"), "Build Cluster Tree (Bonsai)",
+                       class = "btn-outline-success", icon = icon("share-nodes")),
+          helpText("Reconstructs a tree relating the clusters above. Run clustering first."),
           
           # Cluster visualization controls
           hr(),
@@ -269,6 +279,10 @@ clusteringModuleServer <- function(id, input_data, app_state) {
         
         clustering_results(out$cluster_result)
         populations(out$pop_result)
+        cluster_tree(NULL)  # invalidate any previously-built tree -- it
+                             # belonged to the clustering result this just
+                             # replaced. Forces an explicit rebuild rather
+                             # than silently showing a stale tree.
         removeNotification("cluster_msg")
         
         if (!is.null(out$pop_result)) {
@@ -300,11 +314,66 @@ clusteringModuleServer <- function(id, input_data, app_state) {
         )
       })
     })
+
+    # ============================================================================
+    # BUILD CLUSTER RELATIONSHIP TREE -- ASYNC (Bonsai)
+    #
+    # Runs on the cluster CENTERS from the most recent clustering_results(),
+    # not on raw events -- see R/utils/bonsai_utils.R header. Same
+    # future_promise() + session-closed-guard discipline as runClustering()
+    # above: capture reactive values as locals before entering the worker.
+    # ============================================================================
+    observeEvent(input$buildClusterTree, {
+      req(clustering_results(), input_data())
+
+      bonsai_repo <- getOption("cytogater.bonsai_repo", Sys.getenv("CYTOGATER_BONSAI_REPO", ""))
+      python_bin  <- getOption("cytogater.bonsai_python", Sys.getenv("CYTOGATER_BONSAI_PYTHON", ""))
+      if (!nzchar(bonsai_repo) || !nzchar(python_bin)) {
+        showNotification(
+          paste("Bonsai is not configured on this machine. Set CYTOGATER_BONSAI_REPO and",
+                "CYTOGATER_BONSAI_PYTHON (see R/utils/bonsai_utils.R header / spec kit section 2)."),
+          type = "error", duration = 8
+        )
+        return(invisible(NULL))
+      }
+
+      marker_data <- input_data()$scaled_data
+      cluster_ids <- clustering_results()$cluster_ids
+
+      showNotification("Building cluster relationship tree with Bonsai...",
+                        id = "bonsai_msg", duration = NULL)
+
+      future_promise({
+        runBonsaiTree(marker_data, cluster_ids, bonsai_repo, python_bin)
+      }) %...>% (function(phylo) {
+        if (isSessionClosedGuard(session_closed)) {
+          logDiscardedAfterSessionEnd(id, outcome = "success")
+          return(invisible(NULL))
+        }
+        removeNotification("bonsai_msg")
+        if (is.null(phylo)) {
+          showNotification("Bonsai tree reconstruction failed -- check the R console/log.",
+                            type = "error", duration = 6)
+        } else {
+          cluster_tree(phylo)
+          showNotification("Cluster relationship tree ready.", type = "message", duration = 4)
+        }
+      }) %...!% (function(err) {
+        if (isSessionClosedGuard(session_closed)) {
+          logDiscardedAfterSessionEnd(id, outcome = "failure", detail = conditionMessage(err))
+          return(invisible(NULL))
+        }
+        removeNotification("bonsai_msg")
+        showNotification(paste("Cluster tree build failed:", conditionMessage(err)),
+                          type = "error", duration = 6)
+      })
+    })
     
     # Return reactive expressions with results
     return(list(
       clustering_results = clustering_results,
       populations = populations,
+      cluster_tree = cluster_tree,
       showClusteringOptions = reactive(input$showClusteringOptions),
       showPopulationLabels = reactive(input$showPopulationLabels),
       showClusterLabels = reactive(input$showClusterLabels)

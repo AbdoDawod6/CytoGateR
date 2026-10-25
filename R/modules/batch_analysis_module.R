@@ -310,6 +310,12 @@ batchAnalysisModuleUI <- function(id) {
 #' @return List with batch analysis results
 batchAnalysisModuleServer <- function(id, app_state) {
   moduleServer(id, function(input, output, session) {
+
+    # §6.6: static plot settings -- removes the app_state$plot_settings reactive
+    # dependency. get_plot_settings() is a plain function, not reactive, so ps$*
+    # inside renderPlotly does not create reactive dependencies or cause
+    # cascading re-renders.
+    ps <- get_plot_settings()
     
     # Session cleanup handler (Framework 2.1): flags the session as closed so
     # any future_promise() result that resolves after disconnect is discarded
@@ -1246,11 +1252,11 @@ batchAnalysisModuleServer <- function(id, app_state) {
     # Render individual sample dimensionality reduction plot
     output$sampleDimensionalityPlot <- renderPlotly({
       # Explicitly use plot settings to force reactivity
-      font_size <- app_state$plot_settings$font_size
-      point_size <- app_state$plot_settings$point_size
-      color_palette <- app_state$plot_settings$color_palette
-      plot_width <- app_state$plot_settings$width
-      plot_height <- app_state$plot_settings$height
+      font_size <- ps$font_size
+      point_size <- ps$point_size
+      color_palette <- ps$color_palette
+      plot_width <- ps$width
+      plot_height <- ps$height
       
       req(input$viewSample)
       results <- batchResults()
@@ -1467,37 +1473,19 @@ batchAnalysisModuleServer <- function(id, app_state) {
       }
     })
     
-    # Make cluster plot reactive to palette changes
-    observe({
-      # This observer will re-run whenever plot settings change
-      app_state$plot_settings
-      
-      # Force all the cluster-related plots to invalidate and re-render
-      session$sendCustomMessage(type = "refreshClusterPlot", message = list())
-    })
-    
-    # NEW: Make all dimensionality reduction plots reactive to plot settings changes
-    observe({
-      # This observer will re-run whenever plot settings change
-      app_state$plot_settings
-      
-      # Force the dimensionality reduction plots to invalidate
-      session$sendCustomMessage(type = "refreshPlots", message = list())
-      
-      # Explicitly invalidate all plotly outputs to force redraw with new font settings
-      session$sendCustomMessage(type = "plotly-replot", message = list(id = session$ns("sampleDimensionalityPlot")))
-      session$sendCustomMessage(type = "plotly-replot", message = list(id = session$ns("controlSamplePlot")))
-      session$sendCustomMessage(type = "plotly-replot", message = list(id = session$ns("treatedSamplePlot")))
-      session$sendCustomMessage(type = "plotly-replot", message = list(id = session$ns("markerExpressionByCluster")))
-    })
+    # §6.3/§6.6: the two observe() blocks that used to force plot redraws via
+    # the banned custom-message-based forced re-render pattern (refreshClusterPlot / refreshPlots / plotly-replot)
+    # on app_state$plot_settings changes have been removed -- banned pattern.
+    # Plots already re-render through normal Shiny reactivity on data changes;
+    # appearance now comes from the static ps <- get_plot_settings() below.
     
     output$sampleClusterPlot <- renderPlotly({
       # Force reactivity to plot settings - convert to local variables
-      font_size <- app_state$plot_settings$font_size
-      point_size <- app_state$plot_settings$point_size
-      color_palette <- app_state$plot_settings$color_palette
-      width <- app_state$plot_settings$width
-      height <- app_state$plot_settings$height
+      font_size <- ps$font_size
+      point_size <- ps$point_size
+      color_palette <- ps$color_palette
+      width <- ps$width
+      height <- ps$height
       
       req(input$viewSample)
       results <- batchResults()
@@ -1695,11 +1683,11 @@ batchAnalysisModuleServer <- function(id, app_state) {
         centers = centers,
         method = method,
         title = paste("Marker Expression by Cluster -", sample$name),
-        font_size = app_state$plot_settings$font_size,
+        font_size = ps$font_size,
         population_data = population_data
       )
-    }, width = function() app_state$plot_settings$width,
-    height = function() app_state$plot_settings$height)
+    }, width = function() ps$width,
+    height = function() ps$height)
     
     # Render sample cluster statistics
     output$sampleClusterStats <- DT::renderDataTable({
@@ -1779,12 +1767,12 @@ batchAnalysisModuleServer <- function(id, app_state) {
     
     # Single sample marker expression by cluster
     output$markerExpressionByCluster <- renderPlotly({
-      # Explicitly track app_state$plot_settings to make this plot reactive to font changes
-      font_size <- app_state$plot_settings$font_size
-      point_size <- app_state$plot_settings$point_size
-      color_palette <- app_state$plot_settings$color_palette
-      width <- app_state$plot_settings$width
-      height <- app_state$plot_settings$height
+      # Static plot settings (§6.6) -- no reactive dependency, no cascading re-renders
+      font_size <- ps$font_size
+      point_size <- ps$point_size
+      color_palette <- ps$color_palette
+      width <- ps$width
+      height <- ps$height
       
       req(input$viewSample, input$sampleMarkerSelect)
       results <- batchResults()
@@ -1871,12 +1859,12 @@ batchAnalysisModuleServer <- function(id, app_state) {
     
     # Render comparison plots between control and treated samples
     output$controlSamplePlot <- renderPlotly({
-      # Explicitly track app_state$plot_settings to make this plot reactive to font changes
-      font_size <- app_state$plot_settings$font_size
-      point_size <- app_state$plot_settings$point_size
-      color_palette <- app_state$plot_settings$color_palette
-      width <- app_state$plot_settings$width
-      height <- app_state$plot_settings$height
+      # Static plot settings (§6.6) -- no reactive dependency, no cascading re-renders
+      font_size <- ps$font_size
+      point_size <- ps$point_size
+      color_palette <- ps$color_palette
+      width <- ps$width
+      height <- ps$height
       
       req(input$compareViewControl)
       results <- batchResults()
@@ -2065,12 +2053,12 @@ batchAnalysisModuleServer <- function(id, app_state) {
     })
     
     output$treatedSamplePlot <- renderPlotly({
-      # Explicitly track app_state$plot_settings to make this plot reactive to font changes
-      font_size <- app_state$plot_settings$font_size
-      point_size <- app_state$plot_settings$point_size
-      color_palette <- app_state$plot_settings$color_palette
-      width <- app_state$plot_settings$width
-      height <- app_state$plot_settings$height
+      # Static plot settings (§6.6) -- no reactive dependency, no cascading re-renders
+      font_size <- ps$font_size
+      point_size <- ps$point_size
+      color_palette <- ps$color_palette
+      width <- ps$width
+      height <- ps$height
       
       req(input$compareViewTreated)
       results <- batchResults()
@@ -2293,10 +2281,10 @@ batchAnalysisModuleServer <- function(id, app_state) {
         treated_centers = treated_sample$cluster_results$centers,
         control_pops = control_pops,
         treated_pops = treated_pops,
-        font_size = app_state$plot_settings$font_size
+        font_size = ps$font_size
       )
-    }, width = function() app_state$plot_settings$width,
-    height = function() app_state$plot_settings$height)
+    }, width = function() ps$width,
+    height = function() ps$height)
     
     # Signature marker heatmap for comparison
     output$signatureMarkerHeatmap <- renderPlot({
@@ -2324,12 +2312,12 @@ batchAnalysisModuleServer <- function(id, app_state) {
         markers = input$batchSelectedMarkers,
         control_pops = control_sample$populations,
         treated_pops = treated_sample$populations,
-        font_size = app_state$plot_settings$font_size,
+        font_size = ps$font_size,
         control_name = control_sample$name,
         treated_name = treated_sample$name
       )
-    }, width = function() app_state$plot_settings$width,
-    height = function() app_state$plot_settings$height)
+    }, width = function() ps$width,
+    height = function() ps$height)
     
     # Cluster merge modal
     observeEvent(input$showMergeModal, {
@@ -2470,8 +2458,8 @@ batchAnalysisModuleServer <- function(id, app_state) {
         type = "message"
       )
       
-      # Force re-render of visualizations
-      session$sendCustomMessage(type = 'refreshPlots', message = list())
+      # Cluster plots re-render automatically because they read mergeHistory()
+      # reactively (§6.3 -- no forced sendCustomMessage re-render needed).
     })
     
     # Reset merging
@@ -2490,8 +2478,8 @@ batchAnalysisModuleServer <- function(id, app_state) {
       # Show notification
       showNotification("Reset to original clusters", type = "message")
       
-      # Force re-render of visualizations
-      session$sendCustomMessage(type = 'refreshPlots', message = list())
+      # Cluster plots re-render automatically because they read mergeHistory()
+      # reactively (§6.3 -- no forced sendCustomMessage re-render needed).
     })
     
     # Return reactive values that might be needed by other modules

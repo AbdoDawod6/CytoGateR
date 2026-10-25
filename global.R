@@ -29,6 +29,8 @@ library(dbscan)
 library(FlowSOM)
 library(Rphenograph)
 library(igraph)
+library(ape)   # For Bonsai cluster-relationship tree (R/utils/bonsai_utils.R)
+library(yaml)  # For Bonsai config file (R/utils/bonsai_utils.R)
 # Flow-specific libraries
 library(flowAI)
 library(flowDensity)

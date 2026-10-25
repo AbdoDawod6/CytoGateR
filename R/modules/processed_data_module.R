@@ -166,6 +166,12 @@ processedDataModuleUI <- function(id) {
 processedDataModuleServer <- function(id, app_state) {
   moduleServer(id, function(input, output, session) {
 
+    # section-6.6: static plot settings -- removes the app_state.plot_settings reactive
+    # dependency. get_plot_settings() is a plain function, not reactive, so ps.*
+    # inside renderPlotly does not create reactive dependencies or cause
+    # cascading re-renders.
+    ps <- get_plot_settings()
+
     # Session cleanup handler (Framework 2.1).
     # plan(multisession) workers are a fixed pool shared by every session in
     # the app (set once in global.R), so a background future cannot be safely
